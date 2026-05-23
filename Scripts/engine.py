@@ -12,15 +12,14 @@ PATIENCE_MAX = 100.0
 
 class Engine:
     def __init__(self) -> None:
-        self.screen = pygame.display.set_mode((1200, 800))   # doubled window size
-        self.display = pygame.Surface((600, 400))            # doubled internal resolution
+        self.screen = pygame.display.set_mode((1200, 800))
+        self.display = pygame.Surface((600, 400))
         self.clock = pygame.time.Clock()
         pygame.mixer.init()
         pygame.init()
 
         scale = (100, 100)
 
-        # Assets (unchanged)
         assets = Assets()
         assets.insert({
             'moods': {
@@ -58,34 +57,26 @@ class Engine:
         self.sound = SoundMixer(self.assets_sfx)
         self.avatar = Avatar(self, size=scale)
 
-        # Game state
         self.map_points = 0
         self.patience = PATIENCE_MAX
         self.gavel_tokens = INITIAL_TOKENS
-        self.provoke_unlocked = False
-        self.provoke_mode = False
+        self.provoke_mode = False                 # toggleable from start
         self.active_cursor = self.assets_img['cursor']
         self.active_effects = []
         self.state = 'playing'
 
-        # Shop
         self.shop = Shop(self)
 
-        # Fonts
-        self.font = pygame.font.Font(None, 32)          # doubled size to match bigger surface
+        self.font = pygame.font.Font(None, 32)
         self.big_font = pygame.font.Font(None, 64)
 
-        # Timers
         self.map_timer = 0
-        self.patience_timer = 0
-
         pygame.mouse.set_visible(False)
 
     def reset(self):
         self.map_points = 0
         self.patience = PATIENCE_MAX
         self.gavel_tokens = INITIAL_TOKENS
-        self.provoke_unlocked = False
         self.provoke_mode = False
         self.active_cursor = self.assets_img['cursor']
         self.active_effects.clear()
@@ -97,9 +88,8 @@ class Engine:
         while True:
             self.display.fill((0, 0, 0))
             mpos = list(pygame.mouse.get_pos())
-            # Scale mouse position to internal coordinates
-            mpos[0] = mpos[0] // 2
-            mpos[1] = mpos[1] // 2
+            mpos[0] //= 2
+            mpos[1] //= 2
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -110,24 +100,21 @@ class Engine:
                     if event.key == pygame.K_TAB:
                         if self.state in ('playing', 'shop'):
                             self.state = 'shop' if self.state == 'playing' else 'playing'
-                    if event.key == pygame.K_q and self.provoke_unlocked:
+                    if event.key == pygame.K_q:                     # always toggles
                         self.provoke_mode = not self.provoke_mode
                         self.active_cursor = self.assets_img['cursor_provoke'] if self.provoke_mode else self.assets_img['cursor']
-                    # Restart on any key when game ended
                     if self.state in ('victory', 'gameover'):
                         self.reset()
 
-                # Shop scroll handling (cross-version)
                 if self.state == 'shop':
                     if event.type == pygame.MOUSEWHEEL:
                         self.shop.handle_scroll(event.y)
                     elif event.type == pygame.MOUSEBUTTONDOWN:
-                        if event.button == 4:   # scroll up (old pygame)
+                        if event.button == 4:
                             self.shop.handle_scroll(1)
-                        elif event.button == 5: # scroll down
+                        elif event.button == 5:
                             self.shop.handle_scroll(-1)
 
-                # Shop item clicks
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if self.state == 'shop':
                         self.shop.handle_click(mpos)
@@ -145,18 +132,18 @@ class Engine:
             self.clock.tick(60)
 
     def update_playing(self, mpos):
-        # (update logic – unchanged from your latest working version)
         for effect in self.active_effects[:]:
             effect['timer'] -= 1
             if effect['timer'] <= 0:
                 self.active_effects.remove(effect)
 
         touching = self.avatar.rect().collidepoint(mpos)
-        update_mood = False
 
+        # New mood logic:
         if self.provoke_mode:
             if touching:
-                update_mood = True
+                # Angering her
+                update_mood = True          # mood increases (negative)
                 self.map_timer += 1
                 if self.map_timer >= 10:
                     severity = self.avatar.get_mood_severity()
@@ -170,17 +157,16 @@ class Engine:
                     self.sound.play('game_sfx', variant='map_tick', vol=0.3)
                 self.active_cursor = self.assets_img['cursor_provoke']
             else:
-                update_mood = False
+                # Calming down
+                update_mood = False         # mood decreases
                 self.map_timer = 0
         else:
-            if touching:
-                update_mood = False
-            else:
-                update_mood = True
-            self.active_cursor = self.assets_img['cursor']
+            # Comfort mode – always calming
+            update_mood = False             # mood decreases (towards happy)
 
         self.avatar.update(update_mood=update_mood)
 
+        # Patience drain only if negative
         mood = self.avatar.current_mood
         if mood in ['Frown', 'Sad', 'Angry']:
             drain_rate = {'Frown': 0.2, 'Sad': 0.5, 'Angry': 1.0}[mood]
@@ -192,6 +178,7 @@ class Engine:
         else:
             self.patience = min(PATIENCE_MAX, self.patience + 0.5)
 
+        # Cursor animation only when touching
         if touching:
             self.active_cursor.update()
         else:
@@ -205,8 +192,7 @@ class Engine:
         self.avatar.force_mood('Happy')
         self.patience = PATIENCE_MAX
         self.gavel_tokens -= 1
-        penalty = 300
-        self.map_points = max(0, self.map_points - penalty)
+        self.map_points = max(0, self.map_points - 300)
         self.sound.play('game_sfx', variant='gavel')
 
     def apply_effect(self, effect_dict):
@@ -218,11 +204,7 @@ class Engine:
         self.map_points -= item['cost']
         self.sound.play('game_sfx', variant='buy', vol=0.8)
 
-        if item['effect'] == 'provoke_unlock':
-            self.provoke_unlocked = True
-            self.provoke_mode = True
-            self.active_cursor = self.assets_img['cursor_provoke']
-        elif item['effect'] == 'crash_out':
+        if item['effect'] == 'crash_out':
             self.state = 'victory'
             self.sound.play('game_sfx', variant='victory')
         elif item['effect'] == 'instant_mood':
@@ -238,33 +220,47 @@ class Engine:
         return True
 
     def render(self, mpos):
-        # UI – now drawn with larger font for better readability
-        self.display.blit(self.font.render(f'Media Points: {self.map_points}', True, (255,255,255)), (10, 10))
-        bar_width = 200
-        bar_height = 20
-        bar_x = 10
-        bar_y = self.display.get_height() - 45
-        pygame.draw.rect(self.display, (60,60,60), (bar_x, bar_y, bar_width, bar_height))
-        patience_ratio = self.patience / PATIENCE_MAX
-        color = (0,200,0) if patience_ratio > 0.3 else (200,0,0)
-        pygame.draw.rect(self.display, color, (bar_x, bar_y, int(bar_width * patience_ratio), bar_height))
+        # ---- BACKGROUND & GAME UI (always drawn) ----
+        self.display.fill((0, 0, 0))
+
+        # Media Points
+        mp_surf = self.font.render(f'Media Points: {self.map_points}', True, (255,255,255))
+        self.display.blit(mp_surf, (10, 10))
+
+        # Patience bar
+        bar_w, bar_h = 200, 20
+        bar_x, bar_y = 10, self.display.get_height() - 45
+        pygame.draw.rect(self.display, (60,60,60), (bar_x, bar_y, bar_w, bar_h))
+        ratio = self.patience / PATIENCE_MAX
+        color = (0,200,0) if ratio > 0.3 else (200,0,0)
+        pygame.draw.rect(self.display, color, (bar_x, bar_y, int(bar_w * ratio), bar_h))
         self.display.blit(self.font.render('Patience', True, (255,255,255)), (bar_x, bar_y - 25))
+
+        # Orders (tokens)
         for i in range(self.gavel_tokens):
             pygame.draw.circle(self.display, (200,200,0), (30 + i*30, self.display.get_height() - 70), 10)
         self.display.blit(self.font.render('Orders', True, (255,255,255)), (10, self.display.get_height() - 100))
 
+        # Mood & action
+        mood_str = f'Mood: {self.avatar.current_mood}'
+        action_str = f'Action: {self.avatar.actions[self.avatar.current_mood]}'
+        self.display.blit(self.font.render(mood_str, True, (255,255,255)), (10, 50))
+        self.display.blit(self.font.render(action_str, True, (255,255,255)), (10, 80))
+
+        # Avatar
         self.avatar.render(self.display)
 
+        # ---- SHOP OVERLAY (if open) ----
+        if self.state == 'shop':
+            self.shop.render(self.display, mpos)   # draws semi‑transparent backdrop + items
+
+        # ---- CURSOR (always on top) ----
         cursor_img = self.active_cursor.img()
         cursor_rect = cursor_img.get_rect(center=mpos)
         self.display.blit(cursor_img, cursor_rect)
 
-        self.display.blit(self.font.render(f'Mood: {self.avatar.current_mood}', True, (255,255,255)), (10, 50))
-        self.display.blit(self.font.render(f'Action: {self.avatar.actions[self.avatar.current_mood]}', True, (255,255,255)), (10, 80))
-
-        if self.state == 'shop':
-            self.shop.render(self.display, mpos)
-        elif self.state == 'victory':
+        # ---- END SCREENS (victory / gameover) ----
+        if self.state == 'victory':
             self.display.fill((0,0,0))
             msg = self.big_font.render('ADJOURNED! Walkout!', True, (255,215,0))
             self.display.blit(msg, (self.display.get_width()//2 - msg.get_width()//2, 80))
